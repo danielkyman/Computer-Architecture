@@ -1,6 +1,11 @@
 """CPU functionality."""
 
+# opcodes
 import sys
+HLT = 0b00000001
+LDI = 0b10000010
+PRN = 0b01000111
+MUL = 0b10100010
 
 
 class CPU:
@@ -8,43 +13,45 @@ class CPU:
 
     def __init__(self):
         """Construct a new CPU."""
-        self.ram = [None] * 256
         self.reg = [0] * 8
+        self.ram = [0] * 256
         self.pc = 0
-        self.LDI = '10000010'
-        self.HLT = '00000001'
-        self.PRN = '01000111'
-        self.MUL = '10100010'
-        self.instructions_table = {}
-        self.instructions_table[self.LDI] = self.ldi
-        self.instructions_table[self.PRN] = self.prn
-        self.instructions_table[self.MUL] = self.mul
-        pass
+        self.halted = False
 
-    def load(self):
+    def ram_write(self, mdr, mar):
+        self.ram[mar] = mdr
+
+    def ram_read(self, mar):
+        return self.ram[mar]
+
+    def load(self, filename):
         """Load a program into memory."""
 
-        address = 0
-
-        if len(sys.argv) < 2:
-            print('ERROR - Provide program address to load')
-            return
-
-        program_filename = sys.argv[1]
-
-        program_text = open(program_filename).read()
-        # print('!!!', type(program_text))
-        program_lines = program_text.split('\n')
-        program = []
-
-        for line in program_lines:
-            blocks = line.split()
-            if len(blocks) > 0:
-                if blocks[0] != '#':
-                    inst = blocks[0]
-                    program.append(inst)
-
         # For now, we've just hardcoded a program:
+        try:
+            address = 0
+
+            with open(filename) as f:
+                for line in f:
+                    # split before comment
+                    comment_split = line.split('#')
+
+                    # convert to a number splitting and stripping
+                    num = comment_split[0].strip()
+
+                    if num == '':
+                        continue  # ignore blank lines
+
+                    val = int(num, 2)
+
+                    # store val in memory at the given address
+                    self.ram[address] = val
+
+                    address += 1
+
+        except FileNotFoundError:
+            print(f"{sys.argv[0]}: {filename} not found!")
+            sys.exit(2)
 
         # program = [
         #     # From print8.ls8
@@ -56,45 +63,25 @@ class CPU:
         #     0b00000001, # HLT
         # ]
 
-        for instruction in program:
-            self.ram[address] = instruction
-            address += 1
-
-    def ram_read(self, add_str):
-        add = int(add_str, 2)
-        return self.reg[add]
-
-    def ram_write(self, add_str, value_str):
-        add = int(add_str, 2)
-        value = int(value_str, 2)
-        self.reg[add] = value
-
-    def ldi(self):
-        add = self.ram[self.pc + 1]
-        value = self.ram[self.pc + 2]
-        self.ram_write(add, value)
-        self.pc += 3
-
-    def prn(self):
-        add = self.ram[self.pc + 1]
-        value = self.ram_read(add)
-        print(value)
-        self.pc += 2
-
-    def mul(self):
-        add1 = self.ram[self.pc + 1]
-        add2 = self.ram[self.pc + 2]
-        self.alu('MUL', int(add1, 2), int(add2, 2))
-        self.pc += 3
+        # for instruction in program:
+        #     self.ram[address] = instruction
+        #     address += 1
 
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
 
         if op == "ADD":
             self.reg[reg_a] += self.reg[reg_b]
-        # elif op == "SUB": etc
+
+        elif op == "SUB":
+            self.reg[reg_a] -= self.reg[reg_b]
+
         elif op == "MUL":
             self.reg[reg_a] *= self.reg[reg_b]
+
+        elif op == "DIV":
+            self.reg[reg_a] //= self.reg[reg_b]
+
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -120,16 +107,27 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        inst = None
+        while not self.halted:
+            ir = self.ram[self.pc]
+            instruction_length = ((ir >> 6) & 0b11) + \
+                1  # (bitshifted instruction)
+            operand_a = self.ram_read(self.pc + 1)
+            operand_b = self.ram_read(self.pc + 2)
+            # set the instruction length here (extract)
 
-        running = True
+            # halt
+            if ir == HLT:
+                self.halted = True
 
-        while running:
-            inst = self.ram[self.pc]
+            # LDI
+            elif ir == LDI:
+                self.reg[operand_a] = operand_b
 
-            if inst in self.instructions_table:
-                self.instructions_table[inst]()
-            elif inst == self.HLT:
-                running = False
-            else:
-                self.pc += 1
+            # PRN
+            elif ir == PRN:
+                print(self.reg[operand_a])
+
+            elif ir == MUL:
+                self.alu("MUL", operand_a, operand_b)
+
+            self.pc += instruction_length
